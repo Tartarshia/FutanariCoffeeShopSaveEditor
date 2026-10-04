@@ -1,0 +1,9 @@
+.local/
+exports/
+__pycache__/
+*.sd
+*.hs
+*.sqlite*
+*.png
+*.jpg
+*.log
