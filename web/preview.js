@@ -4,7 +4,7 @@ class MaidPreview {
  constructor(canvas){
   this.canvas=canvas;this.gl=canvas.getContext('webgl2',{antialias:true,alpha:false,preserveDrawingBuffer:true});
   if(!this.gl)throw Error('浏览器未提供 WebGL 2，请启用硬件加速后重试');
-  this.parts=[];this.textures=[];this.buffers=[];this.yaw=0;this.pitch=0.08;this.distance=5.6;this.target=[0,1.35,0];this.values={};this.closed=false;this.ready=false;canvas.dataset.loaded='false';
+  this.parts=[];this.textures=[];this.buffers=[];this.geometryCache=new Map();this.textureCache=new Map();this.cacheBytes=0;this.hiddenSlots=new Set();this.yaw=0;this.pitch=0.08;this.distance=5.6;this.target=[0,1.35,0];this.values={};this.closed=false;this.ready=false;canvas.dataset.loaded='false';
   const gl=this.gl,vs=`#version 300 es
   precision highp float;
   in vec3 position;in vec3 normal;in vec2 uv;in vec2 uv1;uniform mat4 camera;
@@ -39,36 +39,54 @@ class MaidPreview {
  }
  makeTexture(image,pixel){const gl=this.gl,t=gl.createTexture();this.textures.push(t);gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);if(image)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,image);else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(pixel));gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);return t;}
  buffer(data,target=this.gl.ARRAY_BUFFER){const gl=this.gl,b=gl.createBuffer();this.buffers.push(b);gl.bindBuffer(target,b);gl.bufferData(target,data,gl.DYNAMIC_DRAW);return b;}
- async load(manifest,url,headers){
-  this.manifest=manifest;const textures=new Map(),gl=this.gl;
-  const texture=async name=>{if(!name)return null;if(textures.has(name))return textures.get(name);const task=new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(this.closed?null:this.makeTexture(image));image.onerror=()=>reject(Error('无法读取本机模型贴图'));image.src=url(name);});textures.set(name,task);return task;};
-  for(const part of manifest.parts){
-   const response=await fetch(url(part.file),{headers});if(!response.ok)throw Error('读取模型网格失败');const raw=await response.arrayBuffer(),size=new DataView(raw).getUint32(0,true);if(size>65536||size+4>raw.byteLength)throw Error('模型网格头无效');const meta=JSON.parse(new TextDecoder().decode(new Uint8Array(raw,4,size))),start=4+size,arrays={};
-   for(const [key,f] of Object.entries(meta.fields)){const end=start+f.offset+f.count*4;if(!Number.isInteger(f.count)||f.count<0||end>raw.byteLength)throw Error('模型缓冲区边界无效');const slice=raw.slice(start+f.offset,end);arrays[key]=f.type==='I'?new Uint32Array(slice):new Float32Array(slice);}
-   if(this.closed)return;
-   const materials=[];for(const m of part.materials){const overlays=[];for(const layer of m.overlays)overlays.push({...layer,glTexture:await texture(layer.texture)});materials.push({...m,glTexture:await texture(m.texture),overlays});}
-   if(this.closed)return;
-   this.parts.push({...part,meta,arrays,materials,positionBuffer:this.buffer(arrays.positions),normalBuffer:this.buffer(arrays.normals),uvBuffer:this.buffer(arrays.uv),uv1Buffer:this.buffer(arrays.uv1||arrays.uv),indexBuffer:this.buffer(arrays.indices,gl.ELEMENT_ARRAY_BUFFER)});
-  }
-  this.ready=true;this.update(this.values);this.canvas.dataset.hair=manifest.hair;this.canvas.dataset.loaded='true';
+ viewState(){return {yaw:this.yaw,pitch:this.pitch,distance:this.distance,target:[...this.target]};}
+ restoreView(state){if(state){Object.assign(this,state);this.target=[...state.target];this.draw();}}
+ setHiddenSlots(slots){this.hiddenSlots=new Set(slots);this.update(this.values);}
+ visible(part){return !part.garment||!part.garment.Slots.some(s=>this.hiddenSlots.has(s));}
+ trimCache(){
+  const activeGeometry=new Set(this.parts.map(p=>p.geometry)),activeTextures=new Set(),prefix=(this.manifest?.resources||'')+':';
+  for(const p of this.parts)for(const m of p.materials){if(m.texture)activeTextures.add(prefix+m.texture);for(const o of m.overlays)if(o.texture)activeTextures.add(prefix+o.texture);}
+  const cap=128*1048576;
+  for(const [key,e] of this.geometryCache){if(this.cacheBytes<=cap)break;if(activeGeometry.has(key))continue;for(const b of e.buffers){this.gl.deleteBuffer(b);this.buffers.splice(this.buffers.indexOf(b),1);}this.cacheBytes-=e.bytes;this.geometryCache.delete(key);}
+  for(const [key,e] of this.textureCache){if(this.cacheBytes<=cap)break;if(activeTextures.has(key))continue;if(e.texture){this.gl.deleteTexture(e.texture);this.textures.splice(this.textures.indexOf(e.texture),1);this.cacheBytes-=e.bytes;this.textureCache.delete(key);}}
  }
+ async load(manifest,url,headers){
+  const gl=this.gl,next=[];
+  const texture=async name=>{if(!name)return null;const cacheKey=(manifest.resources||'')+':'+name;if(this.textureCache.has(cacheKey)){const entry=this.textureCache.get(cacheKey);this.textureCache.delete(cacheKey);this.textureCache.set(cacheKey,entry);return entry.task;}
+   const entry={bytes:0,texture:null};entry.task=new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>{if(this.closed){resolve(null);return;}entry.bytes=image.width*image.height*4;if(this.cacheBytes+entry.bytes>256*1048576){this.textureCache.delete(cacheKey);reject(Error('预览资源超过浏览器缓存上限，请减少穿戴部件'));return;}entry.texture=this.makeTexture(image);this.cacheBytes+=entry.bytes;resolve(entry.texture);};image.onerror=()=>{this.textureCache.delete(cacheKey);reject(Error('无法读取本机模型贴图'));};image.src=url(name);});this.textureCache.set(cacheKey,entry);return entry.task;};
+  try{for(const part of manifest.parts){
+   const key=part.geometry;let geometry=this.geometryCache.get(key);
+   if(!geometry){const response=await fetch(url(part.file),{headers});if(!response.ok)throw Error('读取模型网格失败');const raw=await response.arrayBuffer(),size=new DataView(raw).getUint32(0,true);if(size>65536||size+4>raw.byteLength)throw Error('模型网格头无效');const meta=JSON.parse(new TextDecoder().decode(new Uint8Array(raw,4,size))),start=4+size,arrays={};
+    for(const [key,f] of Object.entries(meta.fields)){const end=start+f.offset+f.count*4;if(!Number.isInteger(f.count)||f.count<0||end>raw.byteLength)throw Error('模型缓冲区边界无效');const slice=raw.slice(start+f.offset,end);arrays[key]=f.type==='I'?new Uint32Array(slice):new Float32Array(slice);}
+    if(this.closed)return;
+    const bytes=Object.values(arrays).reduce((n,a)=>n+a.byteLength,0)+[arrays.positions,arrays.normals,arrays.uv,arrays.uv1||arrays.uv,arrays.indices].reduce((n,a)=>n+a.byteLength,0);if(this.cacheBytes+bytes>256*1048576)throw Error('预览资源超过浏览器缓存上限，请减少穿戴部件');geometry={meta,arrays,positionBuffer:this.buffer(arrays.positions),normalBuffer:this.buffer(arrays.normals),uvBuffer:this.buffer(arrays.uv),uv1Buffer:this.buffer(arrays.uv1||arrays.uv),indexBuffer:this.buffer(arrays.indices,gl.ELEMENT_ARRAY_BUFFER)};
+    geometry.buffers=[geometry.positionBuffer,geometry.normalBuffer,geometry.uvBuffer,geometry.uv1Buffer,geometry.indexBuffer];geometry.bytes=bytes;this.cacheBytes+=geometry.bytes;this.geometryCache.set(key,geometry);
+   }else{this.geometryCache.delete(key);this.geometryCache.set(key,geometry);}
+   const materials=[];for(const m of part.materials){const overlays=[];for(const layer of m.overlays)overlays.push({...layer,glTexture:await texture(layer.texture)});materials.push({...m,glTexture:await texture(m.texture),overlays});}
+   if(this.closed)return;next.push({...part,...geometry,materials});
+  }
+  if(this.closed)return;this.manifest=manifest;this.parts=next;this.ready=true;this.update(this.values);this.canvas.dataset.hair=manifest.hair;this.canvas.dataset.loaded='true';
+  this.canvas.dataset.wardrobe=JSON.stringify([...new Map(next.filter(p=>p.garment).map(p=>[JSON.stringify(p.garment),p.garment])).values()]);
+  }finally{this.trimCache();}
+ }
+
  update(values){
-  this.values=values;if(!this.manifest||this.closed)return;const gl=this.gl;
+  this.values=values;if(!this.manifest||this.closed)return;const gl=this.gl;const tied=this.parts.some(p=>this.visible(p)&&p.tied),heel=this.parts.some(p=>this.visible(p)&&p.heel);
   for(const part of this.parts){const result=new Float32Array(part.arrays.positions);
-   for(const [key,shape] of Object.entries(part.meta.shapes)){let weight=key==='breasts_size'||key==='clothes_breasts_size'?(values.BreastSize||0):key==='breasts_with_bras'?(this.manifest.tied?100:0):key==='wear_high_heel'?(this.manifest.heel?100:0):key.startsWith('pointed_ears')?this.manifest.ear[Number(key.slice(-1))-1]:0;
+   for(const [key,shape] of Object.entries(part.meta.shapes)){let weight=key==='breasts_size'||key==='clothes_breasts_size'?(values.BreastSize||0):key==='breasts_with_bras'?(tied?100:0):key==='wear_high_heel'?(heel?100:0):key.startsWith('pointed_ears')?this.manifest.ear[Number(key.slice(-1))-1]:0;
     const data=part.arrays[shape.field];weight/=shape.weight||100;for(let i=0;i<result.length;i++)result[i]+=data[i]*weight;
    }
    gl.bindBuffer(gl.ARRAY_BUFFER,part.positionBuffer);gl.bufferSubData(gl.ARRAY_BUFFER,0,result);
   }this.draw();
  }
- focus(mode){this.yaw=0;this.pitch=0.05;this.target=mode==='face'?[0,2.48,0]:mode==='upper'?[0,2.05,0]:[0,1.35,0];this.distance=mode==='face'?1.05:mode==='upper'?2.55:5.6;this.draw();}
+ focus(mode){if(mode==='back'){this.yaw=Math.PI;this.draw();return;}this.yaw=0;this.pitch=0.05;this.target=mode==='face'?[0,2.48,0]:mode==='upper'?[0,2.05,0]:[0,1.35,0];this.distance=mode==='face'?1.05:mode==='upper'?2.55:5.6;this.draw();}
  draw(){
   if(this.closed)return;const gl=this.gl,canvas=this.canvas,ratio=Math.min(devicePixelRatio||1,2),w=Math.max(1,Math.round(canvas.clientWidth*ratio)),h=Math.max(1,Math.round(canvas.clientHeight*ratio));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}gl.viewport(0,0,w,h);gl.clearColor(0.12,0.15,0.18,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);if(!this.manifest||!this.ready)return;
   gl.useProgram(this.program);gl.enable(gl.DEPTH_TEST);gl.depthMask(true);gl.depthFunc(gl.LEQUAL);gl.disable(gl.CULL_FACE);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
   const eye=[Math.sin(this.yaw)*Math.cos(this.pitch)*this.distance,this.target[1]+Math.sin(this.pitch)*this.distance,Math.cos(this.yaw)*Math.cos(this.pitch)*this.distance],camera=MaidPreview.multiply(MaidPreview.perspective(w/h),MaidPreview.lookAt(eye,this.target));gl.uniformMatrix4fv(this.uniform.camera,false,camera);gl.uniform3fv(this.uniform.eyePosition,eye);
   const color=(key,otherwise)=>this.values[key]||otherwise;
   const rank=p=>p.name==='eyeballs_bg'?1:p.name==='eyeballs'?2:p.name==='eyeballs_front'?3:p.name==='eyebrows'?4:0;const ordered=[...this.parts].sort((a,b)=>rank(a)-rank(b));
-  for(const part of ordered){
+  for(const part of ordered){if(!this.visible(part))continue;
    for(const [key,b,size] of [['position',part.positionBuffer,3],['normal',part.normalBuffer,3],['uv',part.uvBuffer,2],['uv1',part.uv1Buffer,2]]){gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(this.attribute[key]);gl.vertexAttribPointer(this.attribute[key],size,gl.FLOAT,false,0,0);}gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,part.indexBuffer);
    for(let i=0;i<part.materials.length;i++){const m=part.materials[i],sub=part.meta.submeshes[i],mapping={skin:'SkinColor',face:'SkinColor',hair:'HairMainColor',hair2:'Hair2_MainColor',eye:'Eye',eye_bg:'EyeBg',eye_high:null,brow:'Eyebrow',lash:'Eyelash',nail:'NailColor'},key=mapping[m.kind],tint=key?color(key,m.color):m.color;
     const eyeLayer=['eye','eye_bg','eye_high','lash','brow'].includes(m.kind);gl.uniform1i(this.uniform.eyeLayer,m.kind==='eye_high'?2:eyeLayer?1:0);gl.depthMask(!eyeLayer);gl.blendFunc(gl.SRC_ALPHA,m.kind==='eye_high'?gl.ONE:gl.ONE_MINUS_SRC_ALPHA);
@@ -80,7 +98,7 @@ class MaidPreview {
     for(let j=0;j<5;j++){const layer=m.overlays[j];gl.activeTexture(gl.TEXTURE0+j+1);gl.bindTexture(gl.TEXTURE_2D,layer?.glTexture||this.clear);gl.uniform1i(this.uniform['layer'+j],j+1);gl.uniform4fv(this.uniform['color'+j],layer?color(layer.color,[1,1,1,1]):[0,0,0,0]);masks.push(layer?.mask==='r'?1:0);}gl.uniform3iv(this.uniform.masks,masks.slice(0,3));gl.uniform2iv(this.uniform.masksExtra,masks.slice(3,5));gl.drawElements(gl.TRIANGLES,sub.count,gl.UNSIGNED_INT,sub.start*4);
    }
   }
-  gl.depthMask(true);this.canvas.dataset.parts=this.parts.length;this.canvas.dataset.glError=gl.getError();
+  gl.depthMask(true);this.canvas.dataset.parts=this.parts.length;this.canvas.dataset.visibleParts=this.parts.filter(p=>this.visible(p)).length;this.canvas.dataset.glError=gl.getError();
  }
  destroy(){this.closed=true;this.events.abort();this.observer.disconnect();for(const b of this.buffers)this.gl.deleteBuffer(b);for(const t of this.textures)this.gl.deleteTexture(t);this.gl.deleteProgram(this.program);}
  static multiply(a,b){const out=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++)out[c*4+r]=[0,1,2,3].reduce((s,k)=>s+a[k*4+r]*b[c*4+k],0);return out;}

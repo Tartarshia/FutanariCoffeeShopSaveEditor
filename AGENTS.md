@@ -4,7 +4,7 @@ Independent local workspace. Do not modify sibling projects or the game installa
 Python standard library only. Run `python -m unittest discover -s tests`.
 Use streaming GZip/JSON parsing, disk indexes, paginated UI, and separate worker
 processes for long operations. Preserve every decompressed JSON byte outside
-explicitly edited scalar tokens and vetted small inventory or skill arrays.
+explicitly edited scalar tokens and vetted small inventory, skill or wardrobe arrays.
 The UI saves to the opened source only after full validation and an atomic update
 of its same-directory .sd.bak backup, as explicitly requested by the user.
 Standalone exports must remain new files. Keep saves, caches, local

@@ -8,9 +8,10 @@ import tempfile
 import codec
 import game_data
 import appearance
+import wardrobe
 import unity_preview as unity
 
-def build(folder,output,idx,game=None,selected=None):
+def build(folder,output,idx,game=None,selected=None,wearing=None):
     folder,output=Path(folder),Path(output)
     cat=codec.catalogue(folder)
     meta=json.loads((folder/'meta.json').read_text(encoding='utf8'))
@@ -25,7 +26,9 @@ def build(folder,output,idx,game=None,selected=None):
             choices=cat['appearance'][appearance.SELECTORS[key][1]]
             if value not in [v['id'] for v in choices]:raise ValueError('Unknown preview appearance ID')
             colors[key]=value
-        wearing=codec.read_node(folder,f'/Charas/{idx}/Looks/WearingClothes',db)
+        original=codec.read_node(folder,f'/Charas/{idx}/Looks/WearingClothes',db)
+        wearing=original if wearing is None else wearing
+        wardrobe.valid(wearing,original,cat)
     for key,value in colors.items():
         if value not in [v['id'] for v in cat['appearance'][appearance.SELECTORS[key][1]]]:
             raise ValueError('Unknown original appearance ID; select a supported value: '+key)
@@ -67,9 +70,9 @@ def build(folder,output,idx,game=None,selected=None):
         ear=customs['EarType'][colors['EarType']]['params']
         ear_weights=[int(ear.get('int_value'+str(i),0)) for i in (1,2,3)]
         tied=False;heel=False;clothes_materials={}
-        prefabs=[('new_chara_body','body')]
+        prefabs=[('new_chara_body','body',None)]
         hair=next(v for v in cat['appearance']['hair'] if v['id']==colors['HairModel'])
-        prefabs.extend((v,'hair') for v in hair['prefabs'])
+        prefabs.extend((v,'hair',None) for v in hair['prefabs'])
         for v in wearing:
             item=cat['items'].get(v.get('ItemMstID'),{})
             if not item.get('model'):warnings.append('服装模型缺失：'+str(v.get('ItemMstID')));continue
@@ -83,8 +86,8 @@ def build(folder,output,idx,game=None,selected=None):
                 slot=v.get('Slots',[None])[0]
                 name+= '_right' if slot in (32,34,36) else '_left'
             clothes_materials[name]=game_data.strings(item.get('clothes',{}).get('Mat',''))
-            prefabs.append((name,'clothes'))
-        for prefab,category in prefabs:
+            prefabs.append((name,'clothes',v))
+        for prefab,category,garment in prefabs:
             try:objects=assets.prefab(prefab)
             except ValueError:
                 if category!='clothes':raise
@@ -128,9 +131,12 @@ def build(folder,output,idx,game=None,selected=None):
                     if kind=='skin':overlays=[{'texture':texfile('_Sub_Tex'),'color':'NippleColor','mask':'a'}]
                     materials.append({'kind':kind,'texture':primary,'color':color,'overlays':overlays})
                 if len(materials)!=len(m['submeshes']):raise ValueError('Material / submesh mismatch')
-                parts.append({'name':obj['name'],'category':category,'file':name,'materials':materials})
+                parts.append({'name':obj['name'],'category':category,'file':name,'materials':materials,
+                    'geometry':hashlib.sha256(payload).hexdigest(),
+                    'garment':garment,'tied': 'TieBreasts' in (cat['items'].get(garment['ItemMstID'],{}).get('clothes',{}).get('SetWearStates','')) if garment else False,
+                    'heel': 'WearHighHeel' in (cat['items'].get(garment['ItemMstID'],{}).get('clothes',{}).get('SetWearStates','')) if garment else False})
         if len(parts)>100:raise ValueError('Too many preview parts')
-        manifest={'parts':parts,'hair':colors['HairModel'],'ear':ear_weights,'tied':tied,'heel':heel,
+        manifest={'parts':parts,'resources':cache.name,'hair':colors['HairModel'],'ear':ear_weights,'tied':tied,'heel':heel,
             'warnings':warnings,'note':'真实游戏网格与贴图；静止绑定姿势。浏览器使用近似光照，未复刻 Unity 动画、物理与完整着色器。'}
         if source_signature!=json.dumps([(p.name,p.stat().st_size,p.stat().st_mtime_ns)
                 for p in (data/'resources.assets',data/'resources.assets.resS')]):

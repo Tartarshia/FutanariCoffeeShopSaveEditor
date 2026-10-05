@@ -95,6 +95,7 @@ def view(folder,section,idx=0,page=0,query=''):
                     'limits':cat.get('maid_limits'), 'slots':cat.get('skill_slots'),
                     'exps':cat.get('maid_exps'), 'readonly_paths':[prefix+'/Looks/',prefix+'/UnlockHPoses/',prefix+'/Pos/']}
         if section=='appearance':
+            import wardrobe
             prefix=f'/Charas/{idx}/Looks/Colors/'
             fields=[field(db,cat,p) for (p,) in db.execute(
                 'SELECT path FROM fields WHERE path>=? AND path<? ORDER BY start LIMIT 201',
@@ -108,6 +109,8 @@ def view(folder,section,idx=0,page=0,query=''):
             except ValueError:
                 wearing=[]
             return {'id':idx,'fields':fields,'supported':appearance.supported(db,idx,cat),
+                'wearing_path':f'/Charas/{idx}/Looks/WearingClothes','wearing_value':wearing,
+                'clothing_catalogue':wardrobe.catalogue(cat),'clothing_slots':wardrobe.SLOTS,
                 'groups':appearance.COLOR_GROUPS,'catalogue':cat.get('appearance',{}),
                 'wearing':[{'id':v.get('ItemMstID'),
                     'name':cat.get('items',{}).get(v.get('ItemMstID'),{}).get('name',v.get('ItemMstID')),

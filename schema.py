@@ -3,6 +3,7 @@ import json
 import math
 import re
 import appearance
+import wardrobe
 
 LABELS = {
  'TotalCash':'资金','HPoint':'H 点','ShopLevel':'店铺等级','ShopExp':'店铺经验',
@@ -60,6 +61,9 @@ def describe(path, db, cat):
         return None
     if '/Looks/Colors/' in path:
         return appearance.describe(path,db,cat)
+    m=re.fullmatch(r'/Charas/(\d+)/Looks/WearingClothes',path)
+    if m and appearance.supported(db,int(m[1]),cat):
+        return rule('wardrobe',help='按本机服装槽位验证；穿脱衣和仓库转移在换装界面暂存后统一保存。')
     if path == '/ShopLevel':
         return rule('integer',1,max(int(x) for x in cat['levels']),
                     '直接设置等级，不领取升级任务奖励；员工人数须在目标等级上限以内。')
@@ -123,7 +127,7 @@ def validate_value(path, value, spec, kind):
     if not spec:
         raise ValueError('只读字段：'+path)
     typ = spec['type']
-    if typ in ('skills','inventory'):
+    if typ in ('skills','inventory','wardrobe'):
         if kind != 'array' or not isinstance(value,list):
             raise ValueError('Expected array: '+path)
         if len(value)>1000:
@@ -193,6 +197,8 @@ def validate_links(changes, db, cat, node):
         inventory_valid(changes['/Items'],node('/Items'),cat)
     employees = {m[1] for path in changes if (m:=re.match(r'/Charas/(\d+)/',path))}
     for idx in employees:
+        clothes_path=f'/Charas/{idx}/Looks/WearingClothes'
+        if clothes_path in changes:wardrobe.valid(changes[clothes_path],node(clothes_path),cat)
         p = '/Charas/'+idx+'/Attr/'
         rarity,level,exp = current(p+'Rarity'),current(p+'MaidLevel'),current(p+'MaidLevelExp')
         if type(rarity) is not int or not 0<=rarity<=3 or type(level) is not int or not 1<=level<=cat['maid_limits'][rarity]:

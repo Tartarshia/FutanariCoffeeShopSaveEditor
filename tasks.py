@@ -22,7 +22,7 @@ def main():
         elif request['action'] == 'preview':
             import preview
             result=preview.build(request['folder'],job/'preview',request['id'],
-                request.get('game'),request.get('selected'))
+                request.get('game'),request.get('selected'),request.get('wearing'))
         else:
             raise ValueError('Unknown job')
         status = {'state': 'done', 'result': result}

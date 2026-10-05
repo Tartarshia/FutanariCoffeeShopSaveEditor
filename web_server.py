@@ -224,13 +224,31 @@ class Handler(BaseHTTPRequestHandler):
                 self.send({'job': launch({'action': 'steam', 'operation': data['operation'],
                     'game': data.get('game') or None, 'achievement': data.get('achievement'),
                     'confirmed': data.get('confirmed', False)})})
+            elif self.path == '/api/wardrobe':
+                import appearance
+                import wardrobe
+                import schema
+                folder=job_path(data['job'])/'save'
+                idx=data.get('id')
+                if type(idx) is not int or not 0<=idx<=1000:raise ValueError('Invalid maid')
+                cat=codec.catalogue(folder)
+                with codec.connection(folder/'index.sqlite') as db:
+                    if not appearance.supported(db,idx,cat):raise ValueError('此模型尚不支持换装')
+                    original=codec.read_node(folder,f'/Charas/{idx}/Looks/WearingClothes',db)
+                    items=codec.read_node(folder,'/Items',db)
+                schema.inventory_valid(data['items'],items,cat)
+                result=wardrobe.transition(data['wearing'],data['items'],original,cat,
+                    data.get('operation'),data.get('item'),data.get('slots'),data.get('mode','inventory'))
+                schema.inventory_valid(result['items'],items,cat)
+                self.send(result)
             elif self.path == '/api/preview':
                 folder=job_path(data['job'])/'save'
                 idx=data.get('id')
                 if type(idx) is not int or not 0<=idx<=1000 or not isinstance(data.get('selected',{}),dict):
                     raise ValueError('Invalid preview request')
                 self.send({'job':launch({'action':'preview','folder':str(folder),'id':idx,
-                    'game':data.get('game') or None,'selected':data.get('selected',{})})})
+                    'game':data.get('game') or None,'selected':data.get('selected',{}),
+                    'wearing':data.get('wearing')})})
             else:
                 self.send({'error': 'Not found'}, status=404)
         except (ValueError, OSError, KeyError, TypeError) as e:
