@@ -5,8 +5,9 @@ Python standard library only. Run `python -m unittest discover -s tests`.
 Use streaming GZip/JSON parsing, disk indexes, paginated UI, and separate worker
 processes for long operations. Preserve every decompressed JSON byte outside
 explicitly edited scalar tokens and vetted small inventory or skill arrays.
-Never overwrite source saves or existing exports.
-Validate new output before atomically publishing it. Keep saves, caches, local
+The UI saves to the opened source only after full validation and an atomic update
+of its same-directory .sd.bak backup, as explicitly requested by the user.
+Standalone exports must remain new files. Keep saves, caches, local
 benchmark evidence, screenshots, exports, user names and machine paths ignored.
 Do not redistribute game assemblies or extracted resources. Unknown game rules
 and progression fields remain read-only until verified against local game code.

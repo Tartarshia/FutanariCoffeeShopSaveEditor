@@ -47,6 +47,43 @@ class CodecTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             codec.export(self.folder, {'/TotalCash': 3}, self.root/'new.sd')
 
+    def test_save_updates_original_and_previous_version_backup(self):
+        result = codec.save_with_backup(self.folder, {'/TotalCash': 11})
+        backup = Path(result['backup'])
+        self.assertEqual(backup.read_bytes(), self.original)
+        self.assertEqual(gzip.decompress(self.source.read_bytes()), self.raw.replace(b'10,', b'11,', 1))
+        first = self.source.read_bytes()
+        fresh = self.root / 'fresh-cache'
+        with patch('game_data.load_install', return_value={'error':'Synthetic test'}):
+            codec.prepare(self.source, fresh)
+        codec.save_with_backup(fresh, {'/TotalCash': 12})
+        self.assertEqual(backup.read_bytes(), first)
+        self.assertEqual(gzip.decompress(self.source.read_bytes()), self.raw.replace(b'10,', b'12,', 1))
+        self.assertFalse(self.source.with_name(self.source.name+'.editor-lock').exists())
+
+    def test_failed_replace_preserves_original_and_backup(self):
+        replace = codec.os.replace
+        def fail_source(src, dst):
+            if Path(dst).resolve() == self.source.resolve():
+                raise PermissionError('Synthetic locked save')
+            return replace(src, dst)
+        with patch('codec.os.replace', side_effect=fail_source):
+            with self.assertRaises(PermissionError):
+                codec.save_with_backup(self.folder, {'/TotalCash': 11})
+        self.assertEqual(self.source.read_bytes(), self.original)
+        self.assertEqual(self.source.with_name(self.source.name+'.bak').read_bytes(), self.original)
+        self.assertFalse(self.source.with_name(self.source.name+'.editor-lock').exists())
+
+    def test_stale_save_cannot_overwrite_existing_backup(self):
+        backup = self.source.with_name(self.source.name+'.bak')
+        backup.write_bytes(b'previous backup')
+        self.source.write_bytes(gzip.compress(b'{"TotalCash":20}'))
+        changed = self.source.read_bytes()
+        with self.assertRaises(ValueError):
+            codec.save_with_backup(self.folder, {'/TotalCash': 11})
+        self.assertEqual(backup.read_bytes(), b'previous backup')
+        self.assertEqual(self.source.read_bytes(), changed)
+
     def test_invalid_json_and_duplicates(self):
         invalid = [b'{"TotalCash":01}', b'{"TotalCash":1,"TotalCash":2}',
                    b'{"TotalCash":1,"a":{},"a":[]}',

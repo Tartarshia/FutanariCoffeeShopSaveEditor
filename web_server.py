@@ -71,7 +71,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get('Sec-Fetch-Site') in ('cross-site', 'same-site'):
             raise ValueError('Cross-site request refused')
         supplied = self.headers.get('X-Editor-Token', '')
-        if urlsplit(self.path).path == '/api/download' and not write:
+        if urlsplit(self.path).path in ('/api/download','/api/portrait','/api/preview-file') and not write and not supplied:
             cookie = SimpleCookie(self.headers.get('Cookie', ''))
             supplied = cookie['editor_token'].value if 'editor_token' in cookie else ''
         if (write or self.path.startswith('/api/')) and not secrets.compare_digest(supplied, TOKEN):
@@ -85,7 +85,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Cache-Control', 'no-store')
         if urlsplit(self.path).path == '/':
-            self.send_header('Set-Cookie', f'editor_token={TOKEN}; HttpOnly; SameSite=Strict; Path=/api/download')
+            self.send_header('Set-Cookie', f'editor_token={TOKEN}; HttpOnly; SameSite=Strict; Path=/api/')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'")
         self.end_headers()
@@ -99,9 +99,11 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/':
                 html = (ROOT / 'web/index.html').read_bytes().replace(b'__TOKEN__', TOKEN.encode())
                 self.send(html, 'text/html; charset=utf-8')
-            elif u.path in ('/app.js', '/style.css'):
+            elif u.path in ('/app.js', '/preview.js', '/style.css'):
                 self.send((ROOT / 'web' / u.path[1:]).read_bytes(),
                           'text/javascript; charset=utf-8' if u.path.endswith('.js') else 'text/css; charset=utf-8')
+            elif u.path=='/favicon.ico':
+                self.send(b'','image/x-icon',status=204)
             elif u.path == '/api/saves':
                 self.send({'saves': discover()})
             elif u.path == '/api/status':
@@ -117,6 +119,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not 0 <= page <= 10000000:
                     raise ValueError('Invalid page')
                 self.send(codec.rows(folder, page, q.get('q', [''])[0][:300]))
+            elif u.path == '/api/portrait':
+                import appearance
+                folder=job_path(q.get('job',[''])[0])/'save'
+                idx=int(q.get('id',['0'])[0])
+                if not 0<=idx<=1000:
+                    raise ValueError('Invalid character')
+                with codec.connection(folder/'index.sqlite') as db:
+                    self.send(appearance.portrait(db,idx),'image/png')
             elif u.path in ('/api/overview','/api/view','/api/catalogue'):
                 folder=job_path(q.get('job',[''])[0])/'save'
                 page=int(q.get('page',['0'])[0])
@@ -144,6 +154,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 with open(path, 'rb') as f:
                     shutil.copyfileobj(f, self.wfile, 1048576)
+            elif u.path == '/api/preview-file':
+                job=job_path(q.get('job',[''])[0])
+                status=json.loads((job/'status.json').read_text(encoding='utf8'))
+                name=q.get('name',[''])[0]
+                if status['state']!='done' or not re.fullmatch(r'(?:part_\d+\.mesh|texture_\d+\.png)',name):
+                    raise ValueError('Invalid preview file')
+                path=job/'preview'/name
+                if not path.is_file() or path.stat().st_size>32*1048576:raise ValueError('Missing preview file')
+                self.send_response(200)
+                self.send_header('Content-Type','image/png' if name.endswith('.png') else 'application/octet-stream')
+                self.send_header('Content-Length',str(path.stat().st_size))
+                self.send_header('Cache-Control','no-store')
+                self.send_header('X-Content-Type-Options','nosniff')
+                self.end_headers()
+                with path.open('rb') as f:shutil.copyfileobj(f,self.wfile,1048576)
             else:
                 self.send({'error': 'Not found'}, status=404)
         except (ValueError, OSError, KeyError) as e:
@@ -179,6 +204,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not source.is_file() or source.suffix.lower() != '.sd':
                     raise ValueError('Select an existing .sd save')
                 self.send({'job': launch({'action': 'open', 'source': str(source),'game':data.get('game') or None})})
+            elif self.path == '/api/save':
+                folder = job_path(data['job']) / 'save'
+                if not isinstance(data['changes'], dict):
+                    raise ValueError('Invalid edits')
+                self.send({'job': launch({'action': 'save', 'folder': str(folder),
+                                         'changes': data['changes']})})
             elif self.path == '/api/export':
                 folder = job_path(data['job']) / 'save'
                 target = ROOT / 'exports' / (secrets.token_hex(8) + '_CoffeeShop_edited.sd')
@@ -193,6 +224,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send({'job': launch({'action': 'steam', 'operation': data['operation'],
                     'game': data.get('game') or None, 'achievement': data.get('achievement'),
                     'confirmed': data.get('confirmed', False)})})
+            elif self.path == '/api/preview':
+                folder=job_path(data['job'])/'save'
+                idx=data.get('id')
+                if type(idx) is not int or not 0<=idx<=1000 or not isinstance(data.get('selected',{}),dict):
+                    raise ValueError('Invalid preview request')
+                self.send({'job':launch({'action':'preview','folder':str(folder),'id':idx,
+                    'game':data.get('game') or None,'selected':data.get('selected',{})})})
             else:
                 self.send({'error': 'Not found'}, status=404)
         except (ValueError, OSError, KeyError, TypeError) as e:

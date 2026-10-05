@@ -308,3 +308,40 @@ def export(folder, changes, target):
         except FileExistsError:
             raise ValueError('Export already exists') from None
     return {'file': str(target), 'sha256': digest(target), 'changes': len(changes)}
+
+
+def save_with_backup(folder, changes):
+    """Validate a new file, then back up and atomically replace the opened save."""
+    folder = Path(folder)
+    meta = json.loads((folder / 'meta.json').read_text(encoding='utf-8'))
+    source = Path(meta['source'])
+    backup = source.with_name(source.name + '.bak')
+    lock = source.with_name(source.name + '.editor-lock')
+    if source.is_symlink() or backup.is_symlink() or (backup.exists() and not backup.is_file()):
+        raise ValueError('存档或备份路径不安全')
+    try:
+        handle = open(lock, 'xb')
+    except FileExistsError:
+        raise ValueError('此存档已有保存任务；请等待完成') from None
+    try:
+        with handle, tempfile.TemporaryDirectory(dir=source.parent) as temp:
+            temp = Path(temp)
+            edited = temp / 'validated.sd'
+            result = export(folder, changes, edited)
+            saved_backup = temp / 'previous.sd'
+            with open(source, 'rb') as src, open(saved_backup, 'xb') as out:
+                shutil.copyfileobj(src, out, 1048576)
+                out.flush()
+                os.fsync(out.fileno())
+            if digest(saved_backup) != meta['sha256'] or digest(source) != meta['sha256']:
+                raise ValueError('源存档在保存时发生变化；请重新打开')
+            with open(edited, 'r+b') as checked:
+                os.fsync(checked.fileno())
+            # The previous save is fully written before replacement is attempted.
+            os.replace(saved_backup, backup)
+            if digest(source) != meta['sha256']:
+                raise ValueError('源存档在保存时发生变化；已保留备份，请重新打开')
+            os.replace(edited, source)
+            return {**result, 'file': str(source), 'backup': str(backup)}
+    finally:
+        lock.unlink()

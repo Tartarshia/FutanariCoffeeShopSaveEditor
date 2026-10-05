@@ -9,7 +9,8 @@ import unity_assets
 
 SUPPORTED_ASSEMBLY = '3c49bb55acd33b52aabb6eeaaccecfed9ca180f139e2af749949a8a49fd95acf'
 TABLES = {'CSItemMst', 'CSSkillMst', 'CSShopLevelMst', 'CSBuffMst',
-          'CSFoodMst', 'CSMapObjMst', 'CSMissionMst', 'CSLan_SCN'}
+          'CSFoodMst', 'CSMapObjMst', 'CSMissionMst', 'CSLan_SCN',
+          'CSHairMst', 'CSCharaCustomMst', 'CSClothesMst'}
 
 def fingerprint(path):
     h = hashlib.sha256()
@@ -161,6 +162,7 @@ def load_install(source, explicit=None):
             'type': row['ItemType'], 'group': row['ItemGroup'], 'stack': int(row['StackLimit'] or 0),
             'price': int(row['BasePrice'] or 0), 'sell': int(row['SellPrice'] or 0),
             'params': p, 'food': food, 'map': mo, 'map_params': mp,
+            'model':row['ModelPrefab'], 'clothes':tables['CSClothesMst'].get(row['ClothesMstID'],{}),
             'addable': not forbidden and row['ItemType'] in ('UseItem', 'Gifts', 'Furniture', 'Clothes', 'CookingBook')}
     buffs = {}
     for key,row in tables['CSBuffMst'].items():
@@ -183,7 +185,25 @@ def load_install(source, explicit=None):
     f32 = lambda x: struct.unpack('<f', struct.pack('<f', x))[0]
     for _ in range(max(limits) - 1):
         exps.append(round(f32(f32(exps[-1]) * exp_settings['rate'])))
+    appearance = {'hair':[], 'EarType':[], 'TattooType':[], 'EyeType':[], 'EyeHighType':[]}
+    for key,row in tables['CSHairMst'].items():
+        if boolean(row['IsBanned']) or not strings(row['PrefabNames']):
+            continue
+        # The local table has placeholder names; do not invent hairstyle names.
+        name = row['Name'] if row['Name'] not in ('', '...', '-', '--') else key
+        appearance['hair'].append({'id':key,'name':name,
+            'short':boolean(row['IsShortHair']),'prefabs':strings(row['PrefabNames'])})
+    for key,row in tables['CSCharaCustomMst'].items():
+        category=row['CharaCustom']
+        if category not in appearance or category=='hair':
+            raise ValueError('Unknown appearance category')
+        p=params(row['Params'])
+        appearance[category].append({'id':key,'name':text(key) if key in lan else row['ENName'] or key,
+            'texture':row['TexName'],'params':p,
+            'default_alpha':float(p.get('def_alpha',1)),
+            'fixed_color':boolean(p.get('is_fix_color'))})
     return {'assembly': assembly, 'versions': versions, 'items': items, 'skills': skills,
+            'appearance':appearance,
             'levels': levels, 'maid_limits': limits, 'skill_slots': slots, 'maid_exps': exps,
             'financing_max': shop['_financingMaxCount'], 'shop_settings': shop,
             'maid_settings': maids, 'missions': tables['CSMissionMst']}

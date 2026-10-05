@@ -64,7 +64,24 @@
 
 编辑器对无明确游戏硬上限的体力、恢复、移动速度、工资和售价采用额外防溢出输入界限，并在界面说明；它们不被宣称为自然成长或玩法上限。
 
-`Looks` 包含默认名字 `DefName`、自定义名字 `CustomName`、简介、角色模板、衣装、颜色与形态、头像字节。开放 `CustomName` 编辑，限制为游戏代码规定的 8 个字符，空值表示使用默认名。其他外观结构当前只读。头像是 `_charaIconByte` 数字数组，数量庞大，不能将其视作海量可编辑玩法字段。
+`Looks` 包含默认名字 `DefName`、自定义名字 `CustomName`、简介、角色模板、衣装、颜色与形态、头像字节。开放 `CustomName` 编辑，限制为游戏代码规定的 8 个字符，空值表示使用默认名。普通女仆的已确认 `Colors` 标量可编辑，服装、模板及未知字段只读。头像是 `_charaIconByte` 数字数组，数量庞大，不能将其视作海量可编辑玩法字段。
+
+### 女仆外观
+
+可编辑范围限于 `IsPlayerChara=false`、`Looks.IsMaleChara=false`、`Looks.CharaType=1`、`Looks.PrefabName=new_chara_body`，且本机代码指纹与目录有效。
+
+| Colors 字段 | 意义与规则 |
+| --- | --- |
+| BreastSize | 整数 0–100；身体 `breasts_size` 变形权重。服装使用单独的 `clothes_breasts_size`，不是罩杯单位 |
+| HairModel | 有效、未禁止的 CSHairMst ID；组合多个 PrefabNames。招聘稀有度不是现有人物发型限制 |
+| EarType | CSCharaCustomMst 的 EarType ID；配置 int_value1/2/3 控制 pointed_ears1/2/3 |
+| EyeTex / EyeHighLightTex | EyeType / EyeHighType ID；不是随意填写的贴图文件名 |
+| Tattoo1Tex / Tattoo2Tex | TattooType ID；配置引用纹理。无纹身也是目录中的有效选项 |
+| 各颜色的 r/g/b/a | 浮点数 0–1；27 组颜色分别保存主/第二发色、阴影、高光、肤色、眉睫、虹膜、眼白、妆容、指甲和纹身 |
+
+没有已确认的独立胸型、脸型、身高或腰围保存字段。外观编辑仅替换所选标量的 JSON 值，不删除或重建 Looks，不清空头像，不改变性别/模板，不重置技能或等级。
+
+`_charaIconByte` 是 PNG 缓存。游戏 `GetCharaIcon()` 优先复用它，因此模型外观改变不代表旧头像自动刷新。3D 预览独立从本机资源读取实际网格与贴图；使用静止绑定姿势和近似浏览器着色器，未复刻游戏动画/物理。所有导出还须游戏内载入确认。
 
 `UnlockHPoses.u[]` 表示按设备类型关联的动作等级解锁列表；与 `KnownHObjTypes` 不同，当前只读。
 
@@ -108,3 +125,5 @@
 | CameraPos / CameraRot | 镜头坐标 / 角度 | 只读 |
 
 任务进度有多个类型，部分按当前余额、等级或累计行为更新。奖励标志与自动成就检测可能关联，不作为普通无关联计数处理。编辑器没有调用 Steam 成就接口。
+
+界面保存先验证修改后的新文件，再将原存档完整复制到同目录 `.sd.bak` 并原子替换原存档。备份在下一次保存时更新为该次保存前的版本；源文件变化或验证失败时拒绝覆盖。上传文件只覆盖上传副本。

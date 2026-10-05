@@ -13,10 +13,16 @@ def main():
             result = codec.prepare(request['source'], job / 'save',request.get('game'))
         elif request['action'] == 'export':
             result = codec.export(request['folder'], request['changes'], request['target'])
+        elif request['action'] == 'save':
+            result = codec.save_with_backup(request['folder'], request['changes'])
         elif request['action'] == 'steam':
             import steam_achievements
             result = steam_achievements.run(request['operation'], request.get('game'),
                 request.get('achievement'), request.get('confirmed', False))
+        elif request['action'] == 'preview':
+            import preview
+            result=preview.build(request['folder'],job/'preview',request['id'],
+                request.get('game'),request.get('selected'))
         else:
             raise ValueError('Unknown job')
         status = {'state': 'done', 'result': result}

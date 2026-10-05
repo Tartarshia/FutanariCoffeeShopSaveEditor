@@ -46,6 +46,9 @@ class ServerTests(unittest.TestCase):
 
     def test_job_traversal_refused(self):
         self.assertEqual(self.request('/api/fields?job=../', {'X-Editor-Token':web_server.TOKEN})[0], 400)
+        self.assertEqual(self.request('/api/preview-file?job=../&name=../codec.py',
+                                      {'X-Editor-Token':web_server.TOKEN})[0],400)
+        self.assertEqual(self.request('/api/portrait?job=../&id=0')[0],400)
 
     def test_steam_mutation_requires_token_confirmation_and_one_id(self):
         def post(data, token=True):

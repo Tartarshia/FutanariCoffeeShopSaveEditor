@@ -2,6 +2,7 @@
 import json
 import math
 import re
+import appearance
 
 LABELS = {
  'TotalCash':'资金','HPoint':'H 点','ShopLevel':'店铺等级','ShopExp':'店铺经验',
@@ -57,6 +58,8 @@ def describe(path, db, cat):
         return rule('integer',0,upper,'当前等级进度；升级请同时调整店铺等级和经验，导出按最终等级校验。')
     if not available:
         return None
+    if '/Looks/Colors/' in path:
+        return appearance.describe(path,db,cat)
     if path == '/ShopLevel':
         return rule('integer',1,max(int(x) for x in cat['levels']),
                     '直接设置等级，不领取升级任务奖励；员工人数须在目标等级上限以内。')

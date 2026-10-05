@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 ROOT_FILES = {'AGENTS.md','.gitignore','.gitattributes','LICENSE','THIRD_PARTY_NOTICES.md','README.md',
     'RESEARCH.md','SAVE_FORMAT.md','analysis.py','codec.py','game_data.py','model.py',
     'schema.py','tasks.py','unity_assets.py','web_server.py','steam_achievements.py',
-    'release.py','启动存档编辑器.cmd'}
+    'release.py','appearance.py','preview.py','unity_preview.py','启动存档编辑器.cmd'}
 EXTENSIONS = {'web':{'.js','.html','.css'},'tests':{'.py'},'.github':{'.yml'}}
 PATTERNS = [r'(?i)[a-z]:[\\/]Users[\\/]', r'/ho' + r'me/[^/\s]+/',
     r'(?i)gh[pousr]_[A-Za-z0-9]{20,}', r'github_pat_[A-Za-z0-9_]{20,}',

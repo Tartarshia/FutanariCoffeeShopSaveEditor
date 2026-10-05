@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import codec
 import schema
+import appearance
 
 SECTIONS = {
  'Charas':('员工与玩家','基础属性、工作分组、技能、外观、衣装与动作解锁；头像字节不属于玩法属性。'),
@@ -28,7 +29,7 @@ def field(db,cat,path):
         return None
     k,v=row
     spec=schema.describe(path,db,cat)
-    label=schema.LABELS.get(path.rsplit('/',1)[-1],path)
+    label=appearance.label(path) if '/Looks/Colors/' in path else schema.LABELS.get(path.rsplit('/',1)[-1],path)
     if path.startswith('/ShopStars/'):
         label='近期评分 #'+str(int(path.rsplit('/',1)[-1])+1)
     if '/MenusSaveData/c/' in path:
@@ -93,6 +94,25 @@ def view(folder,section,idx=0,page=0,query=''):
                     'skill_catalogue':list(cat.get('skills',{}).values()),
                     'limits':cat.get('maid_limits'), 'slots':cat.get('skill_slots'),
                     'exps':cat.get('maid_exps'), 'readonly_paths':[prefix+'/Looks/',prefix+'/UnlockHPoses/',prefix+'/Pos/']}
+        if section=='appearance':
+            prefix=f'/Charas/{idx}/Looks/Colors/'
+            fields=[field(db,cat,p) for (p,) in db.execute(
+                'SELECT path FROM fields WHERE path>=? AND path<? ORDER BY start LIMIT 201',
+                (prefix,prefix+'\uffff'))]
+            if len(fields)>200:
+                raise ValueError('外观字段数量超过受支持范围')
+            if not fields:
+                raise ValueError('此角色没有可解析的外观字段')
+            try:
+                wearing=codec.read_node(folder,f'/Charas/{idx}/Looks/WearingClothes',db)
+            except ValueError:
+                wearing=[]
+            return {'id':idx,'fields':fields,'supported':appearance.supported(db,idx,cat),
+                'groups':appearance.COLOR_GROUPS,'catalogue':cat.get('appearance',{}),
+                'wearing':[{'id':v.get('ItemMstID'),
+                    'name':cat.get('items',{}).get(v.get('ItemMstID'),{}).get('name',v.get('ItemMstID')),
+                    'slots':v.get('Slots',[])} for v in wearing],
+                'reason':'仅开放已验证的普通女仆模型；玩家、男性及其他模型保持只读。'}
         if section=='inventory':
             values=codec.read_node(folder,'/Items',db)
             entries=[]
