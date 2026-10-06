@@ -225,6 +225,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send({'job': launch({'action': 'steam', 'operation': data['operation'],
                     'game': data.get('game') or None, 'achievement': data.get('achievement'),
                     'confirmed': data.get('confirmed', False)})})
+            elif self.path == '/api/clothing-stock':
+                import presets
+                folder=job_path(data['job'])/'save'
+                cat=codec.catalogue(folder)
+                with codec.connection(folder/'index.sqlite') as db:
+                    original=codec.read_node(folder,'/Items',db)
+                self.send(presets.clothing_stock(data.get('items'),original,cat))
             elif self.path == '/api/all-likes':
                 import presets
                 self.send(presets.all_likes(job_path(data['job'])/'save'))

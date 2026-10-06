@@ -92,3 +92,5 @@ Wardrobe rules cross-checked against local CSDressUpDetailsUI.WearClothes, CSDre
 购买来源分类核对：`CSHelper.GetShopItems` 从已完成任务读取 `CSMissionMst.FurnitureShopItems / ClothesShopItems / ValuablesShopItems / DarkShopItems`，分别对应 `CSShopType.Furniture / Clothes / GeneralShop / DarkMerchant`；名称来自本机 `CSLan_SCN`。编辑器按全部非禁用任务的目录分类，不以 ItemType 推测渠道，也不声称商品当前已解锁；重叠渠道去重保留，原有缓存可利用已保存的任务表兼容派生分类。筛选和排序仅作用于显示，不改变存档数组。
 
 全员满好感度为独立操作：仅对 IsPlayerChara=false 的员工生成 NowLike=100 标量修改，包含待命员工并排除玩家，逐项使用既有规则校验；不写入其他属性、等级或技能。
+
+服装补齐按本机 CSItemMst.ItemType=Clothes 且 addable 的目录选择衣服及配件，与捏人界面的性别 / 模型过滤无关。每种仓库库存统一为 20，已穿戴物品仍保留在 WearingClothes；只重写已验证的 Items 清单，不合并穿戴数量。操作先验证当前暂存仓库，再在副本补齐并完整验证结果，未知 / 禁用条目原样保留。

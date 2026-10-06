@@ -1,10 +1,36 @@
-"""Bounded, validated employee presets; generate edits without writing a save."""
+"""Bounded, validated gameplay shortcuts; generate edits without writing a save."""
 from pathlib import Path
 from itertools import combinations
+from copy import deepcopy
 import codec
 import schema
 
 MODES = {'skills'}
+
+
+def clothing_stock(values, original, cat):
+    """Set every addable clothing/accessory stock to 20 without touching wearers."""
+    if not cat or 'error' in cat:
+        raise ValueError('请先载入本机游戏配置')
+    schema.inventory_valid(values,original,cat)
+    targets = {key:v for key,v in cat['items'].items() if v['type']=='Clothes' and v['addable']}
+    if not targets:
+        raise ValueError('本机配置没有可添加的服装或配件')
+    if any(v['stack']<20 for v in targets.values()):
+        raise ValueError('存在堆叠上限不足 20 的服装，本次操作未应用')
+    result = deepcopy(values)
+    present = {v['m']:v for v in result}
+    changed, added = 0,0
+    for key in sorted(targets):
+        if key in present:
+            if present[key]['c']!=20:
+                present[key]['c']=20
+                changed+=1
+        else:
+            result.append({'m':key,'c':20})
+            added+=1
+    schema.inventory_valid(result,original,cat)
+    return {'items':result,'total':len(targets),'changed':changed,'added':added}
 
 
 def all_likes(folder):
