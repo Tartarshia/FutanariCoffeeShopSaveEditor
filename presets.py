@@ -5,6 +5,32 @@ import codec
 import schema
 
 MODES = {'skills'}
+
+
+def all_likes(folder):
+    """Prepare only NowLike edits for non-player employees, including standby."""
+    folder = Path(folder)
+    cat = codec.catalogue(folder)
+    if not cat or 'error' in cat:
+        raise ValueError('请先载入本机游戏配置')
+    changes, originals = {}, {}
+    with codec.connection(folder/'index.sqlite') as db:
+        rows = db.execute("SELECT path FROM fields WHERE path GLOB '/Charas/*/IsPlayerChara' LIMIT 1001").fetchall()
+        if len(rows)>1000:
+            raise ValueError('员工数量超过快捷操作上限')
+        for (identity,) in rows:
+            if schema.scalar(db, identity) is not False:
+                continue
+            path = identity.rsplit('/',1)[0]+'/Attr/NowLike'
+            row = db.execute('SELECT kind,value FROM fields WHERE path=?',(path,)).fetchone()
+            if not row:
+                raise ValueError('员工缺少好感度字段：'+path)
+            spec = schema.describe(path, db, cat)
+            target = schema.ATTRS['NowLike'][2]
+            schema.validate_value(path, target, spec, row[0])
+            changes[path], originals[path] = target, schema.scalar(db,path)
+    return {'changes':changes,'originals':originals}
+
 SKILL_EFFECTS = (('FoodQuality', ('FoodQualityUp',)),
                  ('CookingSpeed', ('ReduceCookingTime',)),
                  ('AddCharm', ('AddCharaCharmRate',)),

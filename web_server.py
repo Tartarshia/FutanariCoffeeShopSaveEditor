@@ -225,6 +225,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send({'job': launch({'action': 'steam', 'operation': data['operation'],
                     'game': data.get('game') or None, 'achievement': data.get('achievement'),
                     'confirmed': data.get('confirmed', False)})})
+            elif self.path == '/api/all-likes':
+                import presets
+                self.send(presets.all_likes(job_path(data['job'])/'save'))
             elif self.path == '/api/employee-preset':
                 import presets
                 self.send(presets.plan(job_path(data['job'])/'save',data.get('id'),

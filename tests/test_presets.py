@@ -121,6 +121,42 @@ class PresetTests(unittest.TestCase):
                 if route == 'kitchen':
                     self.assertEqual(skills[0]['SkillMstID'], 'fixture_FoodQuality_2')
 
+    def test_all_likes_includes_standby_and_preserves_player_and_other_fields(self):
+        f = self.fixture
+        f.document['Charas'].extend([
+            {'IsPlayerChara':False,'Work':3,'Attr':{**f.document['Charas'][0]['Attr'],'NowLike':37}},
+            {'IsPlayerChara':False,'Work':0,'Attr':{**f.document['Charas'][0]['Attr'],'NowLike':100}}])
+        raw = json.dumps(f.document, ensure_ascii=False, indent=2).encode('utf8')
+        packed = gzip.compress(raw)
+        f.source.write_bytes(packed)
+        folder = f.root/'likes-cache'
+        with patch('game_data.load_install', return_value=fixture_catalog()):
+            codec.prepare(f.source,folder)
+        result = presets.all_likes(folder)
+        self.assertEqual(set(result['changes']), {f'/Charas/{i}/Attr/NowLike' for i in (0,2,3)})
+        expected = raw
+        with codec.connection(folder/'index.sqlite') as db:
+            ranges = [db.execute('SELECT start,stop FROM fields WHERE path=?',(p,)).fetchone()
+                      for p in result['changes']]
+        for start,stop in sorted(ranges,reverse=True):
+            expected = expected[:start]+b'100'+expected[stop:]
+        saved = codec.save_with_backup(folder,result['changes'])
+        self.assertEqual(gzip.decompress(f.source.read_bytes()),expected)
+        self.assertEqual(f.source.with_name(f.source.name+'.bak').read_bytes(),packed)
+        self.assertEqual(json.loads(expected)['Charas'][1],f.document['Charas'][1])
+
+    def test_all_likes_rejects_missing_fields_without_partial_edits(self):
+        f = self.fixture
+        del f.document['Charas'][0]['Attr']['NowLike']
+        f.source.write_bytes(gzip.compress(json.dumps(f.document).encode('utf8')))
+        folder = f.root/'missing-like-cache'
+        with patch('game_data.load_install', return_value=fixture_catalog()):
+            codec.prepare(f.source,folder)
+        before = f.source.read_bytes()
+        with self.assertRaisesRegex(ValueError,'缺少好感度字段'):
+            presets.all_likes(folder)
+        self.assertEqual(f.source.read_bytes(),before)
+
     def test_invalid_targets_and_missing_verified_skills_fail_closed(self):
         for idx, mode, route in ((1, 'skills', 'hall'), (99, 'skills', 'hall'),
                                   (True, 'skills', 'hall'), (0, 'unknown', 'hall'), (0, 'skills', 'bad')):

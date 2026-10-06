@@ -90,3 +90,5 @@ Wardrobe rules cross-checked against local CSDressUpDetailsUI.WearClothes, CSDre
 员工快捷路线核对：`CSMaidAttributes` / `CSMaidData` 的成长字段与实际值夹取，`CSBuffHolder.OnOrdering/OnCheckout/OnDelivery` 遍历全部对应小费 buff，`CSTipBuff.GetTips` 按菜品 SellPrice 百分比取整并累加，`CSFQUpBuff.GetFoodQuality` 先判超高品质再判高品质。不同小费 ID 可叠加；同类型非小费技能仍保持原有去重约束。预设从本机技能表选择 SSR 可获得的已验证 buff 类型，不把技能经验当作档位，快捷操作仅写入 SkillSDatas，按当前稀有度槽位上限校验；移除稀有度、等级、经验及属性预设。`CSMaidSettings.ApplyLevelUp` 正常升级会随机逐级增加各属性，直接写等级不会补算这段成长。厨房品质与速度选最高档，大堂在最多 32 个候选 / 4 个槽位内枚举组合，按三类小费配置总和及均衡覆盖排序。
 
 购买来源分类核对：`CSHelper.GetShopItems` 从已完成任务读取 `CSMissionMst.FurnitureShopItems / ClothesShopItems / ValuablesShopItems / DarkShopItems`，分别对应 `CSShopType.Furniture / Clothes / GeneralShop / DarkMerchant`；名称来自本机 `CSLan_SCN`。编辑器按全部非禁用任务的目录分类，不以 ItemType 推测渠道，也不声称商品当前已解锁；重叠渠道去重保留，原有缓存可利用已保存的任务表兼容派生分类。筛选和排序仅作用于显示，不改变存档数组。
+
+全员满好感度为独立操作：仅对 IsPlayerChara=false 的员工生成 NowLike=100 标量修改，包含待命员工并排除玩家，逐项使用既有规则校验；不写入其他属性、等级或技能。
