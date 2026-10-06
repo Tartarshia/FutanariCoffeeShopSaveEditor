@@ -5,6 +5,7 @@ import re
 import codec
 import schema
 import appearance
+import game_data
 
 SECTIONS = {
  'Charas':('员工与玩家','基础属性、工作分组、技能、外观、衣装与动作解锁；头像字节不属于玩法属性。'),
@@ -117,10 +118,11 @@ def view(folder,section,idx=0,page=0,query=''):
                     'slots':v.get('Slots',[])} for v in wearing],
                 'reason':'仅开放已验证的普通女仆模型；玩家、男性及其他模型保持只读。'}
         if section=='inventory':
+            shopping=game_data.shopping_items(cat)
             values=codec.read_node(folder,'/Items',db)
             entries=[]
             for i,v in enumerate(values):
-                item=cat.get('items',{}).get(v.get('m'),{})
+                item=shopping.get(v.get('m'),{})
                 name=item.get('name',v.get('m','?'))
                 if query.casefold() not in (name+' '+str(v.get('m'))+' '+item.get('group','')).casefold():
                     continue
@@ -131,7 +133,10 @@ def view(folder,section,idx=0,page=0,query=''):
                     'rule':schema.describe(f'/Items/{i}/c',db,cat)})
             return {'entries':entries[page*25:(page+1)*25],'count':len(entries),
                     'array_path':'/Items','array_value':values,'editable':'error' not in cat,
-                    'item_details':{v['m']:cat.get('items',{}).get(v['m'],{}) for v in values}}
+                    'item_details':{key:{k:v[k] for k in ('id','name','description','type','group','sources','stack','price','sell')}
+                        for key,v in shopping.items()},
+                    'shop_labels':cat.get('shop_labels',{}),'type_labels':cat.get('type_labels',{}),
+                    'types':sorted({v['type'] for v in shopping.values() if v.get('addable')})}
         if section=='menus':
             ids=codec.read_node(folder,'/MenusSaveData/m',db)
             entries=[]
@@ -182,10 +187,26 @@ def view(folder,section,idx=0,page=0,query=''):
             return {'entries':entries[page*25:(page+1)*25],'count':len(entries)}
         raise ValueError('Unknown view')
 
-def catalogue_page(folder,query='',page=0):
+def catalogue_page(folder,query='',page=0,source='',kind='',sort='source'):
     cat=codec.catalogue(folder)
-    values=[v for v in cat.get('items',{}).values() if v['addable'] and query.casefold() in
-            (v['name']+' '+v['id']+' '+v['group']+' '+v['type']).casefold()]
+    if (source not in ('','other',*game_data.SHOP_COLUMNS) or sort not in ('source','name','id')
+            or page<0):
+        raise ValueError('无效物品筛选或排序')
+    values=[v for v in game_data.shopping_items(cat).values() if v['addable']]
+    counts={key:sum(key in v['sources'] for v in values) for key in game_data.SHOP_COLUMNS}
+    counts['other']=sum(not v['sources'] for v in values)
+    types=sorted({v['type'] for v in values})
+    if kind and kind not in types:
+        raise ValueError('未知物品类型')
+    values=[v for v in values if (not source or source in v['sources'] or source=='other' and not v['sources'])
+            and (not kind or v['type']==kind) and all(q in
+            (v['name']+' '+v['id']+' '+v['group']+' '+v['type']).casefold() for q in query.casefold().split())]
+    order={key:i for i,key in enumerate(game_data.SHOP_COLUMNS)}
+    def sort_key(v):
+        tail=(v['name'].casefold(),v['id'])
+        return ((order.get(v['sources'][0],len(order)) if v['sources'] else len(order)),*tail) if sort=='source' else tail if sort=='name' else (v['id'],)
+    values.sort(key=sort_key)
     return {'count':len(values),'entries':[{'id':v['id'],'name':v['name'],'description':v['description'],
-             'type':v['type'],'group':v['group'],'stack':v['stack'],'price':v['price'],'sell':v['sell']}
-             for v in values[page*25:(page+1)*25]]}
+             'type':v['type'],'group':v['group'],'sources':v['sources'],'stack':v['stack'],'price':v['price'],'sell':v['sell']}
+             for v in values[page*25:(page+1)*25]],'source_counts':counts,'types':types,
+             'shop_labels':cat.get('shop_labels',{}),'type_labels':cat.get('type_labels',{})}

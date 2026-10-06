@@ -139,7 +139,8 @@ class Handler(BaseHTTPRequestHandler):
                 elif u.path=='/api/view':
                     self.send(model.view(folder,q.get('section',['shop'])[0],idx,page,query))
                 else:
-                    self.send(model.catalogue_page(folder,query,page))
+                    self.send(model.catalogue_page(folder,query,page,q.get('source',[''])[0],
+                        q.get('kind',[''])[0],q.get('sort',['source'])[0]))
             elif u.path == '/api/download':
                 job = job_path(q.get('job', [''])[0])
                 status = json.loads((job / 'status.json').read_text(encoding='utf-8'))
@@ -224,6 +225,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send({'job': launch({'action': 'steam', 'operation': data['operation'],
                     'game': data.get('game') or None, 'achievement': data.get('achievement'),
                     'confirmed': data.get('confirmed', False)})})
+            elif self.path == '/api/employee-preset':
+                import presets
+                self.send(presets.plan(job_path(data['job'])/'save',data.get('id'),
+                    data.get('mode'),data.get('route','kitchen')))
             elif self.path == '/api/wardrobe':
                 import appearance
                 import wardrobe

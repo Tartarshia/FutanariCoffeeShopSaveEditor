@@ -12,6 +12,23 @@ TABLES = {'CSItemMst', 'CSSkillMst', 'CSShopLevelMst', 'CSBuffMst',
           'CSFoodMst', 'CSMapObjMst', 'CSMissionMst', 'CSLan_SCN',
           'CSHairMst', 'CSCharaCustomMst', 'CSClothesMst'}
 
+SHOP_COLUMNS = {'Furniture': 'FurnitureShopItems', 'Clothes': 'ClothesShopItems',
+                'GeneralShop': 'ValuablesShopItems', 'DarkMerchant': 'DarkShopItems'}
+
+
+def shopping_items(cat):
+    """Use actual mission shop lists, including future unlocks; never guess by type."""
+    sources = {key: [] for key in cat.get('items', {})}
+    for row in cat.get('missions', {}).values():
+        if boolean(row.get('IsBanned', False)):
+            continue
+        for shop, column in SHOP_COLUMNS.items():
+            for key in strings(row.get(column, '')):
+                if key in sources and shop not in sources[key]:
+                    sources[key].append(shop)
+    return {key: {**item, 'sources': [s for s in SHOP_COLUMNS if s in sources[key]]}
+            for key, item in cat.get('items', {}).items()}
+
 def fingerprint(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:
@@ -203,6 +220,8 @@ def load_install(source, explicit=None):
             'default_alpha':float(p.get('def_alpha',1)),
             'fixed_color':boolean(p.get('is_fix_color'))})
     return {'assembly': assembly, 'versions': versions, 'items': items, 'skills': skills,
+            'shop_labels':{key:text('CSShopType.'+key) for key in SHOP_COLUMNS},
+            'type_labels':{key:text('CSItemType.'+key) for key in {v['type'] for v in items.values()}},
             'appearance':appearance,
             'levels': levels, 'maid_limits': limits, 'skill_slots': slots, 'maid_exps': exps,
             'financing_max': shop['_financingMaxCount'], 'shop_settings': shop,
