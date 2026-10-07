@@ -2,10 +2,102 @@
 from pathlib import Path
 from itertools import combinations
 from copy import deepcopy
+import math
+import struct
 import codec
 import schema
 
 MODES = {'skills'}
+
+
+def boss_reference(cat):
+    """SSR birth and 14 upgrades using local growth interval midpoints."""
+    m=cat.get('maid_settings',{})
+    if cat.get('maid_limits',[None]*4)[3]!=15:
+        raise ValueError('本机配置不支持已核对的 SSR Lv15 成长规则')
+    def f(x):
+        return struct.unpack('<f',struct.pack('<f',x))[0]
+    def rnd(x,digits=3):
+        return f(round(f(x),digits))
+    def number(key):
+        x=m[key]
+        if type(x) not in (int,float) or not math.isfinite(x) or x<=0:
+            raise ValueError('无效本机成长配置：'+key)
+        return f(x)
+    def mean_pair(key):
+        x=m[key]
+        if not isinstance(x,list) or len(x)!=2 or any(type(v) not in (int,float) or not math.isfinite(v) or v<=0 for v in x) or x[0]>x[1]:
+            raise ValueError('无效本机成长区间：'+key)
+        return f(f(x[0]+x[1])*0.5)
+    general=f(f(m['_Rarity_N_Rate'][0]+m['_Rarity_SSR_Rate'][1])*0.5)
+    ssr=mean_pair('_Rarity_SSR_Rate')
+    move=mean_pair('_Rarity_SSR_MoveSpeed')
+    get=mean_pair('_Rarity_SSR_GetRate')
+    divisor=round(f(f(cat['maid_limits'][0]+cat['maid_limits'][3])/2))
+    if general<=0 or divisor<=0:
+        raise ValueError('无效本机成长基准')
+    fields={'MaxHp':('_maxHp','Hp'),'HpRecovery':('_hpRecovery','HpRecovery'),
+        'MoveSpeed':('_moveSpeed','MoveSpeed'),'CharaCharm':('_charaCharm','Data'),
+        'CookingTime':('_cookingTime','Data'),'OrderingTime':('_orderingTime','Data'),
+        'CheckoutTime':('_checkoutTime','Data'),'CleaningUpTime':('_cleaningUpTime','Data'),
+        'CookingHpCost':('_cookingCostHp','WorkHp'),'OrderingHpCost':('_orderingCostHp','WorkHp'),
+        'CheckoutHpCost':('_checkoutCostHp','WorkHp'),'CleaningUpHpCost':('_cleaningUpCostHp','WorkHp'),
+        'ExpGetRate':(None,'Data'),'HPointGetRate':(None,'Data')}
+    result={}
+    for key,(setting,group) in fields.items():
+        integer=key in ('MaxHp','CharaCharm')
+        cost=key.endswith('HpCost')
+        lower=cost or key.endswith('Time')
+        if setting is None:
+            base=round(general)
+            current=rnd(get,2)
+        else:
+            raw=number(setting)
+            base_value=f(raw/general) if lower else f(raw*general)
+            initial=f(raw/ssr) if lower else f(raw*(move if key=='MoveSpeed' else ssr))
+            base=round(base_value) if integer or cost else rnd(base_value,1)
+            current=round(initial) if integer or cost else rnd(initial,1)
+        growth=[]
+        for edge in ('min','max'):
+            rate=number('_'+edge+group+'ChangeRate')
+            target=f(base/rate) if lower else f(base*rate)
+            if integer:
+                target=round(target)
+            delta=f(f(target-base)/divisor)
+            growth.append(round(delta) if key=='MaxHp' else rnd(delta))
+        if growth[0]>growth[1]:
+            growth.reverse()
+        step=f(f(growth[0]+growth[1])*0.5)
+        step=round(step) if integer else rnd(step)
+        for _ in range(14):
+            current=current+step if integer else f(current+step)
+            if lower:
+                current=max(1,current)
+        result[key]=int(current) if integer else round(current,3)
+    return result
+
+
+def boss_plan(folder):
+    folder=Path(folder)
+    cat=codec.catalogue(folder)
+    if not cat or 'error' in cat:
+        raise ValueError('请先载入本机游戏配置')
+    targets=boss_reference(cat)
+    changes,originals,labels={},{},{}
+    with codec.connection(folder/'index.sqlite') as db:
+        players=db.execute("SELECT path FROM fields WHERE path GLOB '/Charas/*/IsPlayerChara' AND value='true' LIMIT 2").fetchall()
+        if len(players)!=1:
+            raise ValueError('存档中未找到唯一的老板角色')
+        idx=int(players[0][0].split('/')[2])
+        for key,val in targets.items():
+            path=f'/Charas/{idx}/Attr/{key}'
+            row=db.execute('SELECT kind FROM fields WHERE path=?',(path,)).fetchone()
+            if not row:
+                raise ValueError('老板缺少属性字段：'+key)
+            schema.validate_value(path,val,schema.describe(path,db,cat),row[0])
+            changes[path],originals[path]=val,schema.scalar(db,path)
+            labels[path]=schema.LABELS[key]
+    return {'id':idx,'changes':changes,'originals':originals,'labels':labels}
 
 
 def clothing_stock(values, original, cat):

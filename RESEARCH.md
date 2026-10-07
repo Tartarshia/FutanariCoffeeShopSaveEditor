@@ -94,3 +94,5 @@ Wardrobe rules cross-checked against local CSDressUpDetailsUI.WearClothes, CSDre
 全员满好感度为独立操作：仅对 IsPlayerChara=false 的员工生成 NowLike=100 标量修改，包含待命员工并排除玩家，逐项使用既有规则校验；不写入其他属性、等级或技能。
 
 服装补齐按本机 CSItemMst.ItemType=Clothes 且 addable 的目录选择衣服及配件，与捏人界面的性别 / 模型过滤无关。每种仓库库存统一为 20，已穿戴物品仍保留在 WearingClothes；只重写已验证的 Items 清单，不合并穿戴数量。操作先验证当前暂存仓库，再在副本补齐并完整验证结果，未知 / 禁用条目原样保留。
+
+老板参考属性核对：CSMaidAttributes.CreateNew 的初始值规则、CSFactory.GetAverageRate / GetRandomMoveSpeedRate / GetRandomGetRate 的区间、CSMaidSettings.GetAverageAttributes / ApplyChangeRate / CalculateMaidLvUpdateChangeRange、CSHelper.CalculateUpdateData 和 CSMaidSettings.ApplyLevelUp。成长步长计算的分母是 N 与 SSR 等级上限均值取整，而实际模拟为 SSR 1→15 的 14 次升级；HP 每级整数舍入、魅力每级整数舍入，其他步长取 3 位，耗时和体力消耗逐级夹到最低 1。实现使用 binary32 运算和中值取样，末尾将浮点保存为 3 位参考值；不读取预制体尚未初始化的 _maidUpdateData，不伪称随机结果一致。CSMissionManager.SetMissionData_GuestCountOneDay 使用 bd.guest_leave_normal，因此单日 200 人要求正常结账，而非单纯进入门口。

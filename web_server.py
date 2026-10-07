@@ -225,6 +225,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send({'job': launch({'action': 'steam', 'operation': data['operation'],
                     'game': data.get('game') or None, 'achievement': data.get('achievement'),
                     'confirmed': data.get('confirmed', False)})})
+            elif self.path == '/api/boss-reference':
+                import presets
+                self.send(presets.boss_plan(job_path(data['job'])/'save'))
             elif self.path == '/api/clothing-stock':
                 import presets
                 folder=job_path(data['job'])/'save'
